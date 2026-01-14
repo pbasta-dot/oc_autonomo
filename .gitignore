@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+
+# Datos locales
+outputs/
+proveedores.csv
+users.json
+
+# Entorno
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
