@@ -1,133 +1,94 @@
-from datetime import datetime
-from config import EMPRESAS, ENTREGA_PREDEFINIDA
-from .models import Item, OrdenCompra
-from .calc import calcular_totales
-from .proveedores_ui import seleccionar_proveedor_antiguo, crear_proveedor_nuevo
+# oc/flow.py
+from __future__ import annotations
 
-FLOW_VERSION = "FLOW v4 - codigo item primero + solicitado/autorizado"
+from config import EMPRESAS, CONDICION_PAGO_DEFAULT, ENTREGA_PREDEFINIDA
+from oc.models import OrdenCompra, ItemOC
 
-def pedir_opcion(msg: str, opciones_validas: set[str]) -> str:
+# Ajusta el import según tu proyecto
+# Si tu función es "buscar_y_seleccionar_proveedor()", usa esa
+from oc.proveedores_ui import buscar_y_seleccionar_proveedor
+
+
+def _input_no_vacio(msg: str) -> str:
     while True:
-        val = input(msg).strip()
-        if val in opciones_validas:
-            return val
-        print(f"Opción inválida. Opciones: {', '.join(sorted(opciones_validas))}")
+        v = input(msg).strip()
+        if v:
+            return v
+        print("⚠️ Campo obligatorio.")
 
-def pedir_texto(msg: str, requerido=True) -> str:
-    while True:
-        val = input(msg).strip()
-        if val or not requerido:
-            return val
-        print("Este campo es obligatorio.")
 
-def pedir_float(msg: str) -> float:
+def _input_float(msg: str) -> float:
     while True:
-        raw = input(msg).strip().replace(",", ".")
+        raw = input(msg).strip()
         try:
-            return float(raw)
-        except ValueError:
-            print("Ingresa un número válido (ej: 2, 2.5, 10000).")
+            raw2 = raw.replace(".", "").replace(",", ".") if ("," in raw) else raw
+            return float(raw2)
+        except Exception:
+            print("⚠️ Ingresa un número válido (ej: 2 o 2,5 o 25000).")
 
-def pedir_empresa_emisora():
-    print("\nEmpresa emisora:")
-    for k, v in EMPRESAS.items():
-        print(f"  {k}) {v['nombre']} ({v['rut']})")
-    op = pedir_opcion("Selecciona 1 o 2: ", set(EMPRESAS.keys()))
-    return EMPRESAS[op]
 
-def pedir_cotizacion_opcional():
-    print("\n¿Deseas ingresar COTIZACIÓN N°? (Opcional)")
-    print("  1) Sí")
-    print("  2) No")
-    op = pedir_opcion("Selecciona 1 o 2: ", {"1", "2"})
-    if op == "1":
-        return pedir_texto("COTIZACIÓN N°: ", requerido=False).strip()
-    return ""
+def crear_orden_compra() -> OrdenCompra:
+    oc = OrdenCompra()
 
-def pedir_iva() -> bool:
-    print("\n¿La OC va con IVA?")
-    print("  1) Con IVA (19%)")
-    print("  2) Sin IVA")
-    op = pedir_opcion("Selecciona 1 o 2: ", {"1", "2"})
-    return op == "1"
+    # 1) Empresa emisora
+    print("\n=== Empresa emisora ===")
+    for k, e in EMPRESAS.items():
+        print(f"{k}) {e['nombre']} ({e['rut']})")
 
-def elegir_proveedor():
+    emp_key = _input_no_vacio("Selecciona empresa (1/2): ")
+    if emp_key not in EMPRESAS:
+        print("⚠️ Empresa no válida, se usará la 1.")
+        emp_key = "1"
+
+    emp = EMPRESAS[emp_key]
+    oc.empresa_nombre = emp.get("nombre", "")
+    oc.empresa_rut = emp.get("rut", "")
+    oc.empresa_giro = emp.get("giro", "")
+    oc.empresa_direccion = emp.get("direccion", "")
+    oc.empresa_otro = emp.get("extra", "")
+
+    # 2) Proveedor
+    print("\n=== Proveedor ===")
+    prov = buscar_y_seleccionar_proveedor()  # 👈 ajusta si tu función se llama distinto
+    oc.proveedor = prov or {}
+
+    # 3) Condición de pago
+    print("\n=== Condición de pago ===")
+    cp = input(f"Condición de pago (Enter = {CONDICION_PAGO_DEFAULT}): ").strip()
+    oc.condicion_pago = cp if cp else CONDICION_PAGO_DEFAULT
+
+    # 4) Información de entrega
+    print("\n=== Información de entrega ===")
+    oc.entrega_direccion = input("Dirección entrega (opcional): ").strip() or ENTREGA_PREDEFINIDA.get("direccion", "")
+    oc.entrega_contacto = input("Persona contacto (Enter = default): ").strip() or ENTREGA_PREDEFINIDA.get("contacto", "")
+    oc.entrega_telefono = input("Teléfono (Enter = default): ").strip() or ENTREGA_PREDEFINIDA.get("telefono", "")
+    oc.entrega_correo = input("Correo (Enter = default): ").strip() or ENTREGA_PREDEFINIDA.get("correo", "")
+
+    # 5) Centro de costo / solicitante / autoriza
+    print("\n=== Interno ===")
+    oc.centro_costo = _input_no_vacio("Centro de costo: ")
+    oc.nombre_solicitante = _input_no_vacio("Nombre solicitante: ")
+    oc.autoriza = _input_no_vacio("¿Quién autoriza?: ")
+
+    # 6) Ítems
+    print("\n=== Ítems ===")
     while True:
-        print("\n=== Proveedor ===")
-        print("1) Proveedor antiguo (buscar en proveedores.csv)")
-        print("2) Proveedor nuevo (crear y guardar)")
-        print("0) Volver")
-
-        op = pedir_opcion("Selecciona una opción: ", {"0", "1", "2"})
-
-        if op == "0":
-            return None
-
-        if op == "1":
-            p = seleccionar_proveedor_antiguo()
-            if p:
-                return p
-
-        if op == "2":
-            p = crear_proveedor_nuevo()
-            if p:
-                return p
-
-def pedir_items():
-    print("\nIngreso de ítems (0 para terminar).")
-    print("Orden de ingreso: Código (opcional) → Cantidad → Descripción → Valor unitario\n")
-
-    items = []
-    while True:
-        # ✅ CODIGO PRIMERO
-        codigo = pedir_texto("Código producto (opcional, enter para vacío / 0 para terminar): ", requerido=False)
-        if codigo.strip() == "0":
+        codigo = input("Código (Enter para terminar): ").strip()
+        if not codigo:
             break
+        desc = _input_no_vacio("Descripción: ")
+        cantidad = _input_float("Cantidad: ")
+        unit = _input_float("Valor unitario: ")
 
-        cantidad = pedir_float("Cantidad: ")
-        descripcion = pedir_texto("Descripción del ítem: ")
-        valor = pedir_float("Valor unitario: ")
-
-        items.append(Item(
+        oc.items.append(ItemOC(
+            codigo=codigo,
+            descripcion=desc,
             cantidad=cantidad,
-            descripcion=descripcion,
-            valor_unitario=valor,
-            codigo=codigo
+            valor_unitario=unit,
         ))
-        print("Ítem agregado.\n")
+        print("✅ Ítem agregado.\n")
 
-    return items
+    if not oc.items:
+        print("⚠️ No agregaste ítems. La OC saldrá sin detalle.")
 
-def crear_oc():
-    proveedor = elegir_proveedor()
-    if not proveedor:
-        return None
-
-    empresa_emisora = pedir_empresa_emisora()
-
-    centro_costo = pedir_texto("Centro de costo: ")
-
-    solicitado_por = pedir_texto("Solicitado por: ")
-    autorizado_por = pedir_texto("Autorizado por: ")
-
-    cotizacion_n = pedir_cotizacion_opcional()
-    con_iva = pedir_iva()
-    items = pedir_items()
-
-    numero = datetime.now().strftime("DRAFT-%Y%m%d-%H%M%S")
-
-    oc = OrdenCompra(
-        numero=numero,
-        fecha=datetime.now(),
-        proveedor=proveedor,
-        empresa_emisora=empresa_emisora,
-        centro_costo=centro_costo,
-        solicitado_por=solicitado_por,
-        autorizado_por=autorizado_por,
-        con_iva=con_iva,
-        cotizacion_n=cotizacion_n,
-        entrega=ENTREGA_PREDEFINIDA,
-        items=items,
-    )
-
-    return calcular_totales(oc)
+    return oc

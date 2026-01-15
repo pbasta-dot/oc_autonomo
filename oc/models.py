@@ -1,37 +1,55 @@
+# oc/models.py
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import List, Dict, Any
+from typing import Dict, List
+
 
 @dataclass
-class Item:
-    cantidad: float
-    descripcion: str
-    valor_unitario: float
-    codigo: str = ""  # OPCIONAL
+class ItemOC:
+    """
+    Representa una línea / ítem dentro de la OC.
+    """
+    codigo: str = ""
+    descripcion: str = ""
+    cantidad: float = 0.0
+    valor_unitario: float = 0.0  # clave para Excel (col E)
 
-    @property
-    def total_linea(self) -> float:
-        return self.cantidad * self.valor_unitario
+
+# ✅ Alias de compatibilidad por si tu código antiguo importaba otro nombre
+Item = ItemOC
+
 
 @dataclass
 class OrdenCompra:
-    numero: str
-    fecha: datetime
+    """
+    Modelo principal de Orden de Compra.
+    Los nombres están pensados para que excel.py pueda mapearlos fácil.
+    """
 
-    proveedor: Dict[str, Any]
-    empresa_emisora: Dict[str, Any]
+    # Empresa emisora (D3:D7)
+    empresa_nombre: str = ""
+    empresa_rut: str = ""
+    empresa_giro: str = ""
+    empresa_direccion: str = ""
+    empresa_otro: str = ""  # D7 (si aplica)
 
-    centro_costo: str
-    solicitado_por: str
-    autorizado_por: str
+    # Proveedor (dict desde CSV)
+    proveedor: Dict[str, str] = field(default_factory=dict)
 
-    con_iva: bool
+    # Condición de pago (C17)
+    condicion_pago: str = ""
 
-    # Opcionales
-    cotizacion_n: str = ""
-    entrega: Dict[str, Any] = field(default_factory=dict)
+    # Información de entrega (C20:C23)
+    entrega_direccion: str = ""
+    entrega_contacto: str = ""
+    entrega_telefono: str = ""
+    entrega_correo: str = ""
 
-    items: List[Item] = field(default_factory=list)
-    subtotal: float = 0.0
-    iva: float = 0.0
-    total: float = 0.0
+    # Interno (B52/B54/B56)
+    centro_costo: str = ""
+    nombre_solicitante: str = ""
+    autoriza: str = ""
+
+    # Ítems
+    items: List[ItemOC] = field(default_factory=list)

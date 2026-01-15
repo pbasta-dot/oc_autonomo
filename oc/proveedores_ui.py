@@ -1,115 +1,121 @@
-from .proveedores_repo import buscar, agregar, cargar_todos
+# oc/proveedores_ui.py
+from __future__ import annotations
 
-PAGE_SIZE = 10
+from typing import Dict, List, Any
 
-def pedir_texto(msg: str, requerido=True) -> str:
-    while True:
-        val = input(msg).strip()
-        if val or not requerido:
-            return val
-        print("Este campo es obligatorio.")
+from oc import proveedores_repo
 
-def _campo(p: dict, *nombres, default=""):
+
+CAMPOS_STD = [
+    "razon_social",
+    "rut",
+    "giro",
+    "direccion",
+    "comuna",
+    "ciudad",
+    "telefono",
+    "persona_contacto",
+]
+
+
+def _norm(s: Any) -> str:
+    return ("" if s is None else str(s)).strip()
+
+
+def _formatear(p: Dict[str, str]) -> str:
+    rs = _norm(p.get("razon_social"))
+    rut = _norm(p.get("rut"))
+    giro = _norm(p.get("giro"))
+    comuna = _norm(p.get("comuna"))
+    ciudad = _norm(p.get("ciudad"))
+    return f"{rs} | {rut} | {giro} | {comuna}/{ciudad}"
+
+
+def _estandarizar(p: Dict[str, Any]) -> Dict[str, str]:
+    # Asegura que devolvemos siempre las llaves que Excel espera
+    out = {k: "" for k in CAMPOS_STD}
+    for k in CAMPOS_STD:
+        if k in p and p[k] is not None:
+            out[k] = _norm(p[k])
+
+    # alias por si vienen con otros nombres
+    if not out["razon_social"]:
+        out["razon_social"] = _norm(p.get("nombre", ""))
+
+    if not out["persona_contacto"]:
+        out["persona_contacto"] = _norm(p.get("contacto", ""))
+
+    return out
+
+
+def _buscar(query: str) -> List[Dict[str, str]]:
     """
-    Devuelve el primer campo existente (para compatibilidad con CSV antiguos).
-    Ej: _campo(p, "persona_contacto", "contacto", "persona de contacto")
+    Intenta usar búsqueda avanzada si existe.
+    Si no, usa búsqueda simple con contains.
     """
-    for n in nombres:
-        if n in p and (p.get(n) is not None):
-            return str(p.get(n, "")).strip()
-    return default
+    query = _norm(query)
+    todos = proveedores_repo.cargar_todos()
 
-def seleccionar_proveedor_antiguo():
-    todos = cargar_todos()
-    if not todos:
-        print("\n⚠️ No hay proveedores cargados aún en proveedores.csv")
-        print("Rellena proveedores.csv (carga masiva) o crea uno nuevo desde el sistema.\n")
-        return None
+    # 1) Búsqueda avanzada (si existe en tu repo)
+    if hasattr(proveedores_repo, "buscar_avanzado"):
+        try:
+            res = proveedores_repo.buscar_avanzado(query)
+            return [_estandarizar(p) for p in res]
+        except Exception:
+            pass
+
+    # 2) Búsqueda simple fallback
+    if not query:
+        return [_estandarizar(p) for p in todos]
+
+    q = query.lower()
+    filtrados = []
+    for p in todos:
+        texto = " ".join([_norm(p.get(k, "")) for k in CAMPOS_STD]).lower()
+        if q in texto:
+            filtrados.append(_estandarizar(p))
+
+    return filtrados
+
+
+def buscar_y_seleccionar_proveedor() -> Dict[str, str]:
+    """
+    UI de consola para buscar y seleccionar proveedor.
+    Devuelve un dict estandarizado.
+    """
+    print("\n=== Buscar proveedor ===")
+    print("Tip: puedes buscar por razón social / rut / giro / comuna.\n")
 
     while True:
-        q = input("\nBuscar (razón social / RUT / ciudad / giro / dirección / contacto) o 0 para volver: ").strip()
-        if q == "0":
-            return None
+        query = input("Buscar (Enter para listar todos, 0 para cancelar): ").strip()
+        if query == "0":
+            return {}
 
-        resultados = buscar(q)
+        resultados = _buscar(query)
+
         if not resultados:
-            print("No se encontraron resultados.")
+            print("❌ No se encontraron proveedores. Intenta con otra búsqueda.\n")
             continue
 
-        page = 0
-        total = len(resultados)
-        total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+        # Mostrar top 20
+        max_show = 20
+        print("\nResultados:")
+        for i, p in enumerate(resultados[:max_show], start=1):
+            print(f"{i}) {_formatear(p)}")
 
-        while True:
-            start = page * PAGE_SIZE
-            end = min(start + PAGE_SIZE, total)
-            page_items = resultados[start:end]
+        if len(resultados) > max_show:
+            print(f"... mostrando {max_show} de {len(resultados)} resultados")
 
-            print(f"\nResultados: {total} | Página {page+1}/{total_pages}")
-            print("-" * 100)
+        sel = input("\nSelecciona número (Enter para buscar otra vez): ").strip()
+        if not sel:
+            print("")
+            continue
 
-            for i, p in enumerate(page_items, start=1):
-                razon = _campo(p, "razon_social", "razon", "razon social")
-                rut = _campo(p, "rut")
-                ciudad = _campo(p, "ciudad")
-                comuna = _campo(p, "comuna")
-                contacto = _campo(p, "persona_contacto", "contacto", "persona de contacto", "persona_contacto ")
-                print(f" {i}) {razon} | {rut} | {ciudad} | {comuna} | {contacto}")
+        try:
+            n = int(sel)
+            if 1 <= n <= min(len(resultados), max_show):
+                return resultados[n - 1]
+        except Exception:
+            pass
 
-            print("-" * 100)
-            print("Opciones: [1-10]=Seleccionar | n=Siguiente | p=Anterior | b=Buscar nuevo | 0=Volver")
-            cmd = input("Selecciona opción: ").strip().lower()
-
-            if cmd == "0":
-                return None
-
-            if cmd == "b":
-                break
-
-            if cmd == "n":
-                if page < total_pages - 1:
-                    page += 1
-                else:
-                    print("Ya estás en la última página.")
-                continue
-
-            if cmd == "p":
-                if page > 0:
-                    page -= 1
-                else:
-                    print("Ya estás en la primera página.")
-                continue
-
-            if cmd.isdigit():
-                idx = int(cmd)
-                if 1 <= idx <= len(page_items):
-                    elegido = page_items[idx - 1]
-                    razon = _campo(elegido, "razon_social", "razon", "razon social")
-                    rut = _campo(elegido, "rut")
-                    print(f"\n✅ Seleccionado: {razon} ({rut})\n")
-                    return elegido
-                else:
-                    print("Número fuera de rango para esta página.")
-                continue
-
-            print("Opción inválida.")
-
-def crear_proveedor_nuevo():
-    print("\n=== Crear proveedor nuevo ===")
-    data = {}
-    data["razon_social"] = pedir_texto("RAZÓN SOCIAL: ")
-    data["rut"] = pedir_texto("RUT: ")
-    data["giro"] = pedir_texto("GIRO: ", requerido=False)
-    data["direccion"] = pedir_texto("DIRECCIÓN: ", requerido=False)
-    data["comuna"] = pedir_texto("COMUNA: ", requerido=False)
-    data["ciudad"] = pedir_texto("CIUDAD: ", requerido=False)
-    data["telefono"] = pedir_texto("TELÉFONO: ", requerido=False)
-    data["persona_contacto"] = pedir_texto("PERSONA DE CONTACTO: ", requerido=False)
-
-    try:
-        guardado = agregar(data)
-        print(f"\n✅ Proveedor guardado con ID {guardado.get('id')}\n")
-        return guardado
-    except Exception as e:
-        print(f"\n❌ No se pudo guardar: {e}\n")
-        return None
+        print("⚠️ Selección inválida.\n")

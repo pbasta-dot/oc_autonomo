@@ -1,0 +1,11 @@
+services:
+  oc_autonomo:
+    build:
+      context: .
+    container_name: oc_autonomo
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./outputs:/app/outputs
+      - ./users.json:/app/users.json
+    command: ["python", "app.py"]

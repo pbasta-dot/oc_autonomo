@@ -2,7 +2,9 @@ import csv
 import os
 import re
 
-ARCHIVO = "proveedores.csv"
+from config import PROVEEDORES_CSV  # ✅ toma la ruta desde config.py
+
+ARCHIVO = PROVEEDORES_CSV  # ✅ antes: "proveedores.csv"
 
 CAMPOS = [
     "id",
@@ -17,6 +19,11 @@ CAMPOS = [
 ]
 
 def asegurar_archivo():
+    # ✅ asegura carpeta contenedora (ej: data/)
+    folder = os.path.dirname(ARCHIVO)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+
     if not os.path.exists(ARCHIVO):
         with open(ARCHIVO, "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=CAMPOS)
