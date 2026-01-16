@@ -2,34 +2,51 @@
 from pathlib import Path
 import sys
 
-def _base_dir() -> Path:
+
+def _resource_dir() -> Path:
     """
-    - En modo normal (python app.py): raíz = carpeta donde está config.py
-    - En modo exe (PyInstaller): raíz = carpeta del ejecutable (sys._MEIPASS / dist folder)
+    Base para LEER recursos (templates, etc.)
+    - Normal: carpeta donde está config.py
+    - PyInstaller: sys._MEIPASS (recursos empaquetados)
     """
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
-        # En PyInstaller, los recursos se extraen a _MEIPASS
-        # pero para outputs conviene usar la carpeta del exe
-        return Path(sys._MEIPASS)  # recursos empaquetados
+        return Path(sys._MEIPASS)
     return Path(__file__).resolve().parent
 
-# BASE para encontrar recursos empaquetados
-RESOURCE_DIR = _base_dir()
 
-# BASE para escribir outputs (junto al exe o junto al proyecto)
-if getattr(sys, "frozen", False):
-    RUN_DIR = Path(sys.executable).resolve().parent
-else:
-    RUN_DIR = Path(__file__).resolve().parent
+def _run_dir() -> Path:
+    """
+    Base para ESCRIBIR archivos (outputs, data)
+    - Normal: carpeta del proyecto
+    - PyInstaller: carpeta del ejecutable
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
 
+
+# Bases
+RESOURCE_DIR = _resource_dir()
+RUN_DIR = _run_dir()
+
+# Directorios
 TEMPLATES_DIR = RESOURCE_DIR / "templates"
-DATA_DIR = RESOURCE_DIR / "data"
+
+# ✅ DATA debe escribirse junto al RUN_DIR (no en _MEIPASS)
+DATA_DIR = RUN_DIR / "data"
 OUTPUTS_DIR = RUN_DIR / "outputs"
+
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 
+# Archivos
 PLANTILLA_OC_XLSX = TEMPLATES_DIR / "OC_BASE.xlsx"
-PROVEEDORES_CSV = DATA_DIR / "proveedores.csv"
 
+# ✅ CSVs en RUN_DIR/data
+PROVEEDORES_CSV = DATA_DIR / "proveedores.csv"
+OCS_DETALLE_CSV = DATA_DIR / "ocs_detalle.csv"  # nombre estándar y en minúsculas
+
+# Parámetros app
 EMPRESAS = {
     "1": {
         "nombre": "Red Nacional de Servicios Integrales SpA",
@@ -56,20 +73,27 @@ ENTREGA_PREDEFINIDA = {
 
 CONDICION_PAGO_DEFAULT = "Transferencia"
 
+
 def validar_config() -> None:
+    """
+    Validamos SOLO recursos que deben existir (plantillas).
+    Los CSV NO se validan porque el sistema los crea automáticamente.
+    """
     errores = []
     if not PLANTILLA_OC_XLSX.exists():
         errores.append(f"No se encontró plantilla: {PLANTILLA_OC_XLSX.resolve()}")
-    if not PROVEEDORES_CSV.exists():
-        errores.append(f"No se encontró proveedores: {PROVEEDORES_CSV.resolve()}")
     if errores:
         raise FileNotFoundError("\n".join(errores))
+
 
 if __name__ == "__main__":
     print("RESOURCE_DIR:", RESOURCE_DIR)
     print("RUN_DIR:", RUN_DIR)
+    print("TEMPLATES_DIR:", TEMPLATES_DIR)
+    print("DATA_DIR:", DATA_DIR)
+    print("OUTPUTS_DIR:", OUTPUTS_DIR)
     print("PLANTILLA_OC_XLSX:", PLANTILLA_OC_XLSX)
     print("PROVEEDORES_CSV:", PROVEEDORES_CSV)
-    print("OUTPUTS_DIR:", OUTPUTS_DIR)
+    print("OCS_DETALLE_CSV:", OCS_DETALLE_CSV)
     validar_config()
     print("✅ Config OK")
