@@ -5,7 +5,7 @@ services:
     container_name: oc_autonomo
     stdin_open: true
     tty: true
+    working_dir: /app
     volumes:
-      - ./outputs:/app/outputs
-      - ./users.json:/app/users.json
+      - .:/app
     command: ["python", "app.py"]

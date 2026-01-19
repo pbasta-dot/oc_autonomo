@@ -1,10 +1,8 @@
-# oc/proveedores_ui.py
 from __future__ import annotations
 
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 
 from oc import proveedores_repo
-
 
 CAMPOS_STD = [
     "razon_social",
@@ -17,10 +15,8 @@ CAMPOS_STD = [
     "persona_contacto",
 ]
 
-
 def _norm(s: Any) -> str:
     return ("" if s is None else str(s)).strip()
-
 
 def _formatear(p: Dict[str, str]) -> str:
     rs = _norm(p.get("razon_social"))
@@ -28,94 +24,103 @@ def _formatear(p: Dict[str, str]) -> str:
     giro = _norm(p.get("giro"))
     comuna = _norm(p.get("comuna"))
     ciudad = _norm(p.get("ciudad"))
-    return f"{rs} | {rut} | {giro} | {comuna}/{ciudad}"
+    base = f"{rs} | {rut}"
+    extra = " | ".join([x for x in [giro, f"{comuna}, {ciudad}".strip(", ")] if x])
+    return f"{base} | {extra}" if extra else base
+
+def _input_obligatorio(msg: str) -> str:
+    while True:
+        v = input(msg).strip()
+        if v:
+            return v
+        print("⚠️ Campo obligatorio.")
+
+def _input_opcional(msg: str) -> str:
+    return input(msg).strip()
+
+def _elegir_indice(max_n: int) -> int:
+    while True:
+        raw = input("Selecciona un número: ").strip()
+        if raw.isdigit():
+            n = int(raw)
+            if 1 <= n <= max_n:
+                return n - 1
+        print("⚠️ Selección inválida.")
+
+def _seleccionar_proveedor_existente() -> Dict[str, str]:
+    proveedores = proveedores_repo.cargar_todos()
+    if not proveedores:
+        print("No hay proveedores registrados. Debes crear uno nuevo.")
+        return _crear_proveedor_nuevo()
+
+    q = input("Buscar (Razón Social o RUT) [Enter para listar todos]: ").strip().lower()
+
+    if q:
+        filtrados: List[Dict[str, str]] = []
+        for p in proveedores:
+            rs = _norm(p.get("razon_social")).lower()
+            rut = _norm(p.get("rut")).lower()
+            if q in rs or q in rut:
+                filtrados.append(p)
+    else:
+        filtrados = proveedores
+
+    if not filtrados:
+        print("No se encontraron coincidencias. Se creará un proveedor nuevo.")
+        return _crear_proveedor_nuevo()
+
+    print("\nProveedores disponibles:")
+    for i, p in enumerate(filtrados, start=1):
+        print(f" {i}) {_formatear(p)}")
+
+    idx = _elegir_indice(len(filtrados))
+    elegido = filtrados[idx]
+    return {k: _norm(v) for k, v in elegido.items()}
+
+def _crear_proveedor_nuevo() -> Dict[str, str]:
+    print("\n=== Crear proveedor nuevo ===")
+    data: Dict[str, str] = {}
+
+    data["razon_social"] = _input_obligatorio("Razón social: ")
+    data["rut"] = _input_obligatorio("RUT: ")
+
+    data["giro"] = _input_opcional("Giro: ")
+    data["direccion"] = _input_opcional("Dirección: ")
+    data["comuna"] = _input_opcional("Comuna: ")
+    data["ciudad"] = _input_opcional("Ciudad: ")
+    data["telefono"] = _input_opcional("Teléfono: ")
+    data["persona_contacto"] = _input_opcional("Persona contacto: ")
+
+    # Guardar con control de errores (RUT duplicado / campos obligatorios)
+    try:
+        creado = proveedores_repo.agregar(data)
+    except ValueError as e:
+        print(f"❌ No se pudo crear proveedor: {e}")
+        print("👉 Intenta nuevamente.\n")
+        return _crear_proveedor_nuevo()
+
+    print(f"✅ Proveedor creado: {_formatear(creado)}")
+    return {k: _norm(v) for k, v in creado.items()}
 
 
-def _estandarizar(p: Dict[str, Any]) -> Dict[str, str]:
-    # Asegura que devolvemos siempre las llaves que Excel espera
-    out = {k: "" for k in CAMPOS_STD}
-    for k in CAMPOS_STD:
-        if k in p and p[k] is not None:
-            out[k] = _norm(p[k])
-
-    # alias por si vienen con otros nombres
-    if not out["razon_social"]:
-        out["razon_social"] = _norm(p.get("nombre", ""))
-
-    if not out["persona_contacto"]:
-        out["persona_contacto"] = _norm(p.get("contacto", ""))
-
-    return out
-
-
-def _buscar(query: str) -> List[Dict[str, str]]:
-    """
-    Intenta usar búsqueda avanzada si existe.
-    Si no, usa búsqueda simple con contains.
-    """
-    query = _norm(query)
-    todos = proveedores_repo.cargar_todos()
-
-    # 1) Búsqueda avanzada (si existe en tu repo)
-    if hasattr(proveedores_repo, "buscar_avanzado"):
-        try:
-            res = proveedores_repo.buscar_avanzado(query)
-            return [_estandarizar(p) for p in res]
-        except Exception:
-            pass
-
-    # 2) Búsqueda simple fallback
-    if not query:
-        return [_estandarizar(p) for p in todos]
-
-    q = query.lower()
-    filtrados = []
-    for p in todos:
-        texto = " ".join([_norm(p.get(k, "")) for k in CAMPOS_STD]).lower()
-        if q in texto:
-            filtrados.append(_estandarizar(p))
-
-    return filtrados
-
+    print(f"✅ Proveedor creado: {_formatear(creado)}")
+    return {k: _norm(v) for k, v in creado.items()}
 
 def buscar_y_seleccionar_proveedor() -> Dict[str, str]:
     """
-    UI de consola para buscar y seleccionar proveedor.
-    Devuelve un dict estandarizado.
+    Mantiene el mismo nombre que usas en flow.py, pero ahora pregunta:
+    - 1) Proveedor antiguo (seleccionar)
+    - 2) Proveedor nuevo (crear)
     """
-    print("\n=== Buscar proveedor ===")
-    print("Tip: puedes buscar por razón social / rut / giro / comuna.\n")
-
     while True:
-        query = input("Buscar (Enter para listar todos, 0 para cancelar): ").strip()
-        if query == "0":
-            return {}
+        print("\n¿El proveedor es nuevo o antiguo?")
+        print(" 1) Antiguo (ya registrado)")
+        print(" 2) Nuevo (registrar ahora)")
+        op = input("Opción (1/2): ").strip()
 
-        resultados = _buscar(query)
+        if op == "1":
+            return _seleccionar_proveedor_existente()
+        if op == "2":
+            return _crear_proveedor_nuevo()
 
-        if not resultados:
-            print("❌ No se encontraron proveedores. Intenta con otra búsqueda.\n")
-            continue
-
-        # Mostrar top 20
-        max_show = 20
-        print("\nResultados:")
-        for i, p in enumerate(resultados[:max_show], start=1):
-            print(f"{i}) {_formatear(p)}")
-
-        if len(resultados) > max_show:
-            print(f"... mostrando {max_show} de {len(resultados)} resultados")
-
-        sel = input("\nSelecciona número (Enter para buscar otra vez): ").strip()
-        if not sel:
-            print("")
-            continue
-
-        try:
-            n = int(sel)
-            if 1 <= n <= min(len(resultados), max_show):
-                return resultados[n - 1]
-        except Exception:
-            pass
-
-        print("⚠️ Selección inválida.\n")
+        print("⚠️ Opción inválida. Ingresa 1 o 2.")

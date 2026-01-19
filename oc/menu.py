@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import Any, Callable
 import inspect
 import os
 from datetime import datetime
+from typing import Any, Callable
 
 import config
-
 from oc.excel import generar_excel_oc
+from oc.oc_repo import registrar_desde_orden_compra
 
 # PDF opcional
 try:
@@ -15,18 +15,15 @@ try:
 except Exception:
     generar_pdf_oc = None  # type: ignore
 
-from .oc_repo import registrar_desde_orden_compra
-from config import OCS_DETALLE_CSV
-
 
 # =====================================================
 # Helpers UX
 # =====================================================
-def _line():
+def _line() -> None:
     print("-" * 60)
 
 
-def _title(text: str):
+def _title(text: str) -> None:
     _line()
     print(f"🧾 {text}")
     _line()
@@ -42,14 +39,14 @@ def _confirm(msg: str) -> bool:
         print("❌ Respuesta inválida. Usa S o N.")
 
 
-def _fmt_money(value):
+def _fmt_money(value: Any) -> str:
     try:
         return f"${int(round(float(value))):,}".replace(",", ".")
     except Exception:
         return "-"
 
 
-def _get_dict(obj: Any, attr: str, default=None):
+def _get_dict(obj: Any, attr: str, default=None) -> dict:
     v = getattr(obj, attr, None)
     if v is None:
         return default if default is not None else {}
@@ -57,10 +54,10 @@ def _get_dict(obj: Any, attr: str, default=None):
 
 
 # =====================================================
-# Detectar función correcta en oc.flow
+# Resolver function create OC (oc.flow)
 # =====================================================
 def _resolver_funcion_creacion_oc() -> Callable:
-    import oc.flow as flow  # import local para evitar problemas circulares
+    import oc.flow as flow  # import local para evitar circulares
 
     candidatos_por_nombre = [
         "crear_orden_compra",
@@ -79,7 +76,7 @@ def _resolver_funcion_creacion_oc() -> Callable:
         if callable(fn):
             return fn
 
-    callables = []
+    callables: list[tuple[str, Callable]] = []
     for name, obj in vars(flow).items():
         if name.startswith("_"):
             continue
@@ -117,9 +114,42 @@ def _crear_oc(usuario: Any) -> Any:
 
 
 # =====================================================
+# PDF robusto (firma variable)
+# =====================================================
+def _generar_pdf_robusto(oc: Any, excel_path: str) -> str | None:
+    """
+    Soporta estas firmas comunes:
+    - generar_pdf_oc(oc)
+    - generar_pdf_oc(oc, excel_path)
+    - generar_pdf_oc(excel_path)
+    """
+    if generar_pdf_oc is None:
+        return None
+
+    try:
+        sig = inspect.signature(generar_pdf_oc)
+        n = len(sig.parameters)
+
+        if n == 0:
+            return generar_pdf_oc()  # type: ignore
+
+        if n == 1:
+            return generar_pdf_oc(oc)  # type: ignore
+
+        return generar_pdf_oc(oc, excel_path)  # type: ignore
+
+    except Exception:
+        # Alternativa: algunas implementaciones reciben excel_path
+        try:
+            return generar_pdf_oc(excel_path)  # type: ignore
+        except Exception:
+            return None
+
+
+# =====================================================
 # Resumen visual
 # =====================================================
-def _mostrar_resumen_oc(oc: Any):
+def _mostrar_resumen_oc(oc: Any) -> None:
     _title("Resumen Orden de Compra")
 
     empresa = _get_dict(oc, "empresa", {})
@@ -145,7 +175,12 @@ def _mostrar_resumen_oc(oc: Any):
             precio = _fmt_money(item.get("precio_unitario"))
             subtotal = _fmt_money(item.get("subtotal"))
         else:
-            desc = getattr(item, "descripcion", None) or getattr(item, "nombre", None) or getattr(item, "detalle", None) or "-"
+            desc = (
+                getattr(item, "descripcion", None)
+                or getattr(item, "nombre", None)
+                or getattr(item, "detalle", None)
+                or "-"
+            )
             cant = getattr(item, "cantidad", "-")
             precio = _fmt_money(getattr(item, "precio_unitario", None))
             subtotal = _fmt_money(getattr(item, "subtotal", None))
@@ -158,14 +193,12 @@ def _mostrar_resumen_oc(oc: Any):
     print(f"💰 IVA  : {_fmt_money(getattr(oc, 'iva', None))}")
     print(f"💰 Total: {_fmt_money(getattr(oc, 'total', None))}")
     _line()
-    print(f"📄 Condición de pago: {getattr(config, 'CONDICION_PAGO_DEFAULT', '-')}")
-    _line()
 
 
 # =====================================================
 # Menú principal
 # =====================================================
-def menu_principal(usuario):
+def menu_principal(usuario: Any) -> None:
     while True:
         _title(getattr(config, "APP_NOMBRE", "OC_Autonomo"))
 
@@ -181,49 +214,31 @@ def menu_principal(usuario):
                 _mostrar_resumen_oc(oc)
 
                 if not _confirm("¿Confirmar generación de la Orden de Compra?"):
-                    print("⚠️  Operación cancelada por el usuario.")
+                    print("⚠️ Operación cancelada por el usuario.")
                     input("Presiona ENTER para continuar...")
                     continue
 
                 # 1) Excel
-                excel_path = generar_excel_oc(oc)
-                print(f"✅ Excel generado: {excel_path}")
+                # Si ya implementaste nombre custom:
+                # excel_path = generar_excel_oc(oc, filename_base=getattr(oc, "nombre_archivo_base", None))
+                excel_path = generar_excel_oc(
+    oc,
+    filename_base=getattr(oc, "nombre_archivo_base", None)
+)
 
                 # 2) PDF (opcional)
-                pdf_path = None
-                if generar_pdf_oc is not None:
-                    try:
-                        pdf_path = generar_pdf_oc(excel_path)
-                        print(f"📄 PDF generado: {pdf_path}")
-                    except Exception as e:
-                        print(f"⚠️  No se pudo generar PDF (opcional): {e}")
+                pdf_path = _generar_pdf_robusto(oc, excel_path)
 
                 # 3) OC numero para histórico
                 if pdf_path:
-                    oc_numero = os.path.splitext(os.path.basename(pdf_path))[0]
+                    oc_numero = os.path.splitext(os.path.basename(str(pdf_path)))[0]
                 else:
                     oc_numero = datetime.now().strftime("OC-%Y%m%d-%H%M%S")
 
-                # 4) Registrar histórico (NO silencioso)
-                print("🧪 DEBUG: registrando histórico...")
-                print(f"🧪 DEBUG: oc_numero = {oc_numero}")
-                print(f"🧪 DEBUG: items = {len(getattr(oc, 'items', []) or [])}")
-                print(f"🧪 DEBUG: archivo destino = {OCS_DETALLE_CSV}")
+                registrar_desde_orden_compra(oc_obj=oc, oc_numero=oc_numero)
 
-                filas = registrar_desde_orden_compra(oc_obj=oc, oc_numero=oc_numero)
-                print(f"✅ Histórico OK: {filas} filas agregadas en {OCS_DETALLE_CSV}")
-
-                # Confirmación dura: imprimir últimas líneas
-                try:
-                    with open(OCS_DETALLE_CSV, "r", encoding="utf-8") as f:
-                        lines = f.readlines()
-                    print("🧾 Últimas líneas CSV:")
-                    for l in lines[-min(5, len(lines)):]:
-                        print("   " + l.strip())
-                except Exception as e:
-                    print(f"⚠️ DEBUG: no pude leer el CSV para confirmar: {e}")
-
-                print("🎉 Orden de Compra generada exitosamente.")
+                # Mensaje final limpio
+                print("✅ Orden de Compra generada exitosamente.")
                 input("Presiona ENTER para volver al menú...")
 
             except Exception as e:

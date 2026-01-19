@@ -8,48 +8,44 @@ from typing import Dict, List
 @dataclass
 class ItemOC:
     """
-    Representa una línea / ítem dentro de la OC.
+    Item compatible con oc/menu.py:
+    - menu usa: descripcion, cantidad, precio_unitario, subtotal
     """
     codigo: str = ""
     descripcion: str = ""
     cantidad: float = 0.0
-    valor_unitario: float = 0.0  # clave para Excel (col E)
+    precio_unitario: float = 0.0
 
-
-# ✅ Alias de compatibilidad por si tu código antiguo importaba otro nombre
-Item = ItemOC
+    @property
+    def subtotal(self) -> float:
+        try:
+            return float(self.cantidad) * float(self.precio_unitario)
+        except Exception:
+            return 0.0
 
 
 @dataclass
 class OrdenCompra:
     """
-    Modelo principal de Orden de Compra.
-    Los nombres están pensados para que excel.py pueda mapearlos fácil.
+    Orden compatible con oc/menu.py:
+    - menu usa: oc.empresa (dict), oc.proveedor (dict), oc.items, oc.neto, oc.iva, oc.total
+    Además incluye campos para Excel: centro_costo, solicitante, autoriza, entrega, condición de pago
     """
-
-    # Empresa emisora (D3:D7)
-    empresa_nombre: str = ""
-    empresa_rut: str = ""
-    empresa_giro: str = ""
-    empresa_direccion: str = ""
-    empresa_otro: str = ""  # D7 (si aplica)
-
-    # Proveedor (dict desde CSV)
+    # Dicts para menú
+    empresa: Dict[str, str] = field(default_factory=dict)
     proveedor: Dict[str, str] = field(default_factory=dict)
 
-    # Condición de pago (C17)
+    # Datos adicionales
     condicion_pago: str = ""
+    entrega: Dict[str, str] = field(default_factory=dict)
 
-    # Información de entrega (C20:C23)
-    entrega_direccion: str = ""
-    entrega_contacto: str = ""
-    entrega_telefono: str = ""
-    entrega_correo: str = ""
-
-    # Interno (B52/B54/B56)
     centro_costo: str = ""
-    nombre_solicitante: str = ""
-    autoriza: str = ""
+    solicitante: str = ""   # (texto “NOMBRE SOLICITANTE”)
+    autoriza: str = ""      # (texto “AUTORIZA”)
 
-    # Ítems
     items: List[ItemOC] = field(default_factory=list)
+
+    # Totales (pueden ser calculados al final del flow)
+    neto: float = 0.0
+    iva: float = 0.0
+    total: float = 0.0

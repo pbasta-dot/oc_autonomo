@@ -53,16 +53,20 @@ EMPRESAS = {
         "rut": "76.279.333-4",
         "giro": "Servicios de ambulancia y asistencia",
         "direccion": "Tu dirección empresa 1",
+        "correo":"PROVEEDORES@REST911.CL (envío de facturas para el pago).",
     },
+    
     "2": {
         "nombre": "Rest911 (Otra Razón Social)",
         "rut": "75.269.444-4",
         "giro": "Otro giro",
         "direccion": "Tu dirección empresa 2",
+        "correo":"PROVEEDORES@REST911.CL (envío de facturas para el pago)."
     },
 }
 
 IVA_TASA = 0.19
+
 APP_NOMBRE = "Sistema OC - Autónomo"
 
 ENTREGA_PREDEFINIDA = {
